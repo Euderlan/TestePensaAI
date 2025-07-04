@@ -9,11 +9,13 @@ import { Sidebar } from './components/SidebarComponents';
 
 // Importações dos hooks
 import { useChat } from './hooks/useChat';
+import { checkBackendHealth } from './utils/aiUtils';
 
 // Componente Principal
 const App = () => {
   const [inputValue, setInputValue] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [backendStatus, setBackendStatus] = useState(null);
   const messagesAreaRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -34,6 +36,9 @@ const App = () => {
   useEffect(() => {
     loadHistory();
     loadInitialMessage();
+    
+    // Verifica status do backend
+    checkBackendHealth().then(setBackendStatus);
     
     // Verifica se deve mostrar sidebar em telas pequenas
     const handleResize = () => {
@@ -83,13 +88,11 @@ const App = () => {
   };
 
   // Manipula seleção de arquivo
-  const handleFileSelect = (file) => {
-    console.log('Arquivo selecionado:', file);
-    // Aqui você pode implementar a lógica para processar o arquivo
-    // Por exemplo, fazer upload para um servidor ou processar localmente
+  const handleFileSelect = (file, uploadResult) => {
+    console.log('Arquivo processado:', file.name, uploadResult);
     
-    // Adiciona uma mensagem indicando que um arquivo foi anexado
-    const fileMessage = `📎 Arquivo anexado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    // Adiciona uma mensagem indicando que um arquivo foi processado
+    const fileMessage = `📎 **Arquivo processado**: ${file.name}\n\n✅ ${uploadResult?.message || 'Arquivo indexado com sucesso! Agora você pode fazer perguntas sobre o conteúdo.'}`;
     sendMessage(fileMessage);
   };
 
@@ -119,13 +122,20 @@ const App = () => {
 
   return (
     <div className="app-container">
+      {/* Indicador de status do backend */}
+      {backendStatus && (
+        <div className={`backend-status ${backendStatus.groq_configured ? 'online' : 'limited'}`}>
+          {backendStatus.groq_configured ? '🟢 Backend Online' : '🟡 Backend Limitado'}
+        </div>
+      )}
+
       <Sidebar
         chatHistory={chatHistory}
         currentChatId={currentChatId}
         onLoadChat={handleLoadChat}
         onClearHistory={clearAllHistory}
         onNewChat={handleNewChat}
-        onToggleSidebar={toggleSidebar} // Nova prop para fechar sidebar
+        onToggleSidebar={toggleSidebar}
         isVisible={sidebarVisible}
       />
       

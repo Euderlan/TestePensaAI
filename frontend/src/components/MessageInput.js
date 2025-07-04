@@ -2,6 +2,7 @@
 // src/components/MessageInput.js
 // ==========================================
 import React, { useState, useRef } from 'react';
+import { uploadFile } from '../utils/aiUtils';
 import '../styles/MessageInput.css';
 
 const MessageInput = ({ 
@@ -10,15 +11,17 @@ const MessageInput = ({
   onSendMessage, 
   isTyping, 
   inputRef,
-  onFileSelect // Nova prop para lidar com arquivos
+  onFileSelect // Callback para quando arquivo é processado
 }) => {
   const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const fileInputRef = useRef(null);
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSendMessage();
+      handleSend();
     }
   };
 
@@ -32,47 +35,89 @@ const MessageInput = ({
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      // Limita o tamanho do arquivo (5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Arquivo muito grande. Máximo 5MB.');
-        return;
-      }
+    if (!file) return;
 
-      // Tipos de arquivo permitidos
-      const allowedTypes = [
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-        'text/plain', 'application/pdf',
-        'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      ];
-
-      if (!allowedTypes.includes(file.type)) {
-        alert('Tipo de arquivo não suportado. Use imagens, PDF, DOC ou TXT.');
-        return;
-      }
-
-      setSelectedFile(file);
+    // Validações do arquivo
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Arquivo muito grande. Máximo 5MB.');
+      return;
     }
+
+    const allowedTypes = [
+      'application/pdf',
+      'text/plain',
+      'application/msword', 
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      alert('Tipo de arquivo não suportado. Use PDF, DOC, DOCX ou TXT.');
+      return;
+    }
+
+    setSelectedFile(file);
+    setUploadStatus('Pronto para enviar');
   };
 
   const removeFile = () => {
     setSelectedFile(null);
+    setUploadStatus('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handleSend = () => {
-    if (selectedFile) {
-      // Chama a função callback para lidar com o arquivo no componente pai
-      if (onFileSelect) {
-        onFileSelect(selectedFile);
-      }
-      removeFile();
+  const handleSend = async () => {
+    // Se há arquivo, fazer upload primeiro
+    if (selectedFile && !isUploading) {
+      await handleFileUpload();
     }
-    onSendMessage();
+    
+    // Enviar mensagem de texto (se houver)
+    if (inputValue.trim()) {
+      onSendMessage();
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) return;
+
+    setIsUploading(true);
+    setUploadStatus('Enviando arquivo...');
+
+    try {
+      const result = await uploadFile(selectedFile);
+      
+      // Sucesso no upload
+      setUploadStatus('Arquivo processado!');
+      
+      // Adiciona mensagem informando sobre o upload
+      const uploadMessage = `📎 Arquivo enviado: **${selectedFile.name}**\n\n${result.message || 'Arquivo processado com sucesso!'}`;
+      
+      // Chama callback se fornecido
+      if (onFileSelect) {
+        onFileSelect(selectedFile, result);
+      }
+
+      // Remove arquivo após 2 segundos
+      setTimeout(() => {
+        removeFile();
+      }, 2000);
+
+    } catch (error) {
+      console.error('Erro no upload:', error);
+      setUploadStatus('Erro no upload');
+      alert(`Erro ao enviar arquivo: ${error.message}`);
+      
+      // Remove status de erro após 3 segundos
+      setTimeout(() => {
+        setUploadStatus('');
+      }, 3000);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -84,24 +129,29 @@ const MessageInput = ({
             📎 {selectedFile.name.length > 20 
               ? selectedFile.name.substring(0, 20) + '...' 
               : selectedFile.name}
-            <button 
-              className="remove-file" 
-              onClick={removeFile}
-              title="Remover arquivo"
-            >
-              ×
-            </button>
+            {uploadStatus && (
+              <span className="upload-status"> - {uploadStatus}</span>
+            )}
+            {!isUploading && (
+              <button 
+                className="remove-file" 
+                onClick={removeFile}
+                title="Remover arquivo"
+              >
+                ×
+              </button>
+            )}
           </div>
         )}
 
         {/* Botão de adicionar arquivo */}
         <button
-          className="add-file-button"
+          className={`add-file-button ${isUploading ? 'uploading' : ''}`}
           onClick={handleFileSelect}
-          disabled={isTyping}
-          title="Adicionar arquivo"
+          disabled={isTyping || isUploading}
+          title="Adicionar arquivo (PDF, DOC, TXT)"
         >
-          +
+          {isUploading ? '⏳' : '+'}
         </button>
 
         {/* Input de arquivo oculto */}
@@ -110,29 +160,29 @@ const MessageInput = ({
           type="file"
           className="file-input"
           onChange={handleFileChange}
-          accept="image/*,.pdf,.doc,.docx,.txt"
+          accept=".pdf,.doc,.docx,.txt"
         />
 
         {/* Input de texto */}
         <textarea
           ref={inputRef}
           className="message-input"
-          placeholder="Pergunte alguma coisa"
+          placeholder="Pergunte alguma coisa ou envie um arquivo"
           value={inputValue}
           onChange={handleInputChange}
           onKeyPress={handleKeyPress}
           rows="1"
-          disabled={isTyping}
+          disabled={isTyping || isUploading}
         />
 
         {/* Botão de enviar */}
         <button
-          className="send-button"
+          className={`send-button ${isUploading ? 'uploading' : ''}`}
           onClick={handleSend}
-          disabled={isTyping || (!inputValue.trim() && !selectedFile)}
+          disabled={isTyping || isUploading || (!inputValue.trim() && !selectedFile)}
           title="Enviar mensagem"
         >
-          ➤
+          {isUploading ? '⏳' : '➤'}
         </button>
       </div>
     </div>
